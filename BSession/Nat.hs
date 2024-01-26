@@ -5,6 +5,7 @@
 
 module BSession.Nat where
 
+import Data.Hashable
 import Data.Kind
 import Prettyprinter
 
@@ -21,6 +22,10 @@ data Fin n where
   FS :: Fin n -> Fin (S n)
 
 deriving stock instance Eq (Fin n)
+
+instance Hashable (Fin n) where
+  hashWithSalt s FZ = s `hashWithSalt` (0 :: Int)
+  hashWithSalt s (FS n) = s `hashWithSalt` (1 :: Int) `hashWithSalt` n
 
 class ToNum a where
   toNum :: (Num b) => a -> b

@@ -7,33 +7,40 @@
 module BSession.Syntax where
 
 import BSession.Nat
+import Data.Hashable
 import Data.Kind
 import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as T
+import GHC.Generics (Generic)
 import Prettyprinter
 
 -- |  A `VarLabel` is the user facing name of a variable.
---
---  All `VarLabel`s compare equal! Variables should be compared by their index.
 newtype VarLabel = VarLabel T.Text
   deriving newtype (Pretty)
 
+-- | Because `VarLabel`s are purely visual they have no effect on equality. All
+-- `VarLabel`s compare equal!
 instance Eq VarLabel where
   _ == _ = True
 
-data Var n = Var !VarLabel !(Fin n)
+instance Hashable VarLabel where
+  hashWithSalt s _ = s
 
-instance Eq (Var n) where
-  Var _ m == Var _ n = m == n
+data Var n = Var !VarLabel !(Fin n)
+  deriving stock (Eq, Generic)
+
+instance Hashable (Var n)
 
 instance Pretty (Var n) where
   pretty (Var lbl n) = pretty lbl <> "@" <> pretty n
 
 data Dir = In | Out
-  deriving stock (Eq)
+  deriving stock (Eq, Generic)
+
+instance Hashable Dir
 
 newtype Ty = Ty T.Text
-  deriving newtype (Eq, Pretty)
+  deriving newtype (Eq, Pretty, Hashable)
 
 type Session0 = Session Z
 
@@ -47,6 +54,10 @@ data Session n where
   SMu :: !VarLabel -> Session (S n) -> Session n
 
 deriving stock instance Eq (Session n)
+
+deriving stock instance Generic (Session n)
+
+instance Hashable (Session n)
 
 instance Pretty (Session n) where
   pretty = \case

@@ -27,6 +27,7 @@ executable session-impl
     build-depends:
       base ^>=4.19.0.0,
       containers ^>=0.6,
+      hashable ^>= 1.4.3,
       megaparsec ^>=9.6.1,
       prettyprinter ^>=1.7,
       text ^>=2.1,
