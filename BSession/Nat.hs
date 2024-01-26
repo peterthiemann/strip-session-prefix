@@ -14,10 +14,14 @@ data Nat where
   Z :: Nat
   S :: Nat -> Nat
 
+deriving stock instance Eq Nat
+
 type Fin :: Nat -> Type
 data Fin n where
   FZ :: Fin (S n)
   FS :: Fin n -> Fin (S n)
+
+deriving stock instance Eq (Fin n)
 
 class ToNat a where
   toNat :: a -> Natural

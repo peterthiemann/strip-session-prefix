@@ -21,6 +21,7 @@ executable session-impl
     other-modules:
       BSession.Nat,
       BSession.Parse,
+      BSession.Prefix,
       BSession.Syntax,
     -- other-extensions:
     build-depends:

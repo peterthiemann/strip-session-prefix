@@ -47,7 +47,7 @@ pSession vars = label "session type" do
     pStop = pIdentMapM \case
       KWRet -> pure $ Right SRet
       KWEnd -> pure $ Right SEnd
-      Ident s | Just idx <- HM.lookup s vars -> pure $ Right $ SVar Var {varLabel = s, varIndex = idx}
+      Ident s | Just idx <- HM.lookup s vars -> pure $ Right $ SVar $ Var (VarLabel s) idx
       Ident s | otherwise -> fail $ "unbound variable ‘" ++ T.unpack s ++ "’"
       _ -> pure $ Left [Ident ""]
     pMu = do
@@ -55,7 +55,7 @@ pSession vars = label "session type" do
       var <- pIdentMap \case Ident s -> Right s; _ -> Left [Ident ""]
       _ <- pSym "."
       let vars' = HM.insert var FZ $ HM.map FS vars
-      SMu var <$> pSession vars'
+      SMu (VarLabel var) <$> pSession vars'
 
 data LexIdent = KWRec | KWRet | KWEnd | Ident !T.Text
   deriving stock (Eq)
@@ -77,10 +77,10 @@ pIdentMapM f = try do
   loc <- getOffset
   pIdentAny >>= \lexed -> do
     let toLbl = \case
-          KWRec -> Tokens $ NE.fromList $ "rec"
-          KWRet -> Tokens $ NE.fromList $ "ret"
-          KWEnd -> Tokens $ NE.fromList $ "end"
-          Ident _ -> Label $ NE.fromList $ "identifier"
+          KWRec -> Tokens $ NE.fromList "rec"
+          KWRet -> Tokens $ NE.fromList "ret"
+          KWEnd -> Tokens $ NE.fromList "end"
+          Ident _ -> Label $ NE.fromList "identifier"
     f lexed >>= \case
       Left expected -> region (setErrorOffset loc) do
         failure (Just (toLbl lexed)) $ Set.fromList $ toLbl <$> expected
