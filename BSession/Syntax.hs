@@ -6,6 +6,7 @@
 module BSession.Syntax where
 
 import BSession.Nat
+import Data.IntSet qualified as IS
 import Data.Kind
 import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as T
@@ -55,3 +56,15 @@ instance Pretty (Session n) where
     SCom x t s -> (case x of In -> "?"; Out -> "!") <> pretty t <+> dot <+> pretty s
     SAlt x ss -> (case x of In -> "&"; Out -> "+") <> encloseSep "{ " " }" " ; " (pretty <$> NE.toList ss)
     SMu v s -> "rec " <> pretty v <> dot <+> pretty s
+
+contractive :: Session n -> Bool
+contractive = go 0
+  where
+    go :: Int -> Session n -> Bool
+    go !preceedingBinders = \case
+      SEnd -> True
+      SRet -> True
+      SVar (Var _ n) -> toNum n >= preceedingBinders
+      SCom _ _ s -> contractive s
+      SAlt _ ss -> all contractive ss
+      SMu _ s -> go (preceedingBinders + 1) s

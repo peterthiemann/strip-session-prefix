@@ -4,6 +4,7 @@
 import BSession.Parse qualified as Parse
 import BSession.Prefix
 import BSession.Syntax
+import Control.Monad
 import Data.Text qualified as T
 import Prettyprinter
 import System.Environment
@@ -41,8 +42,11 @@ parse name src = do
       putStr $ P.errorBundlePretty e
       pure Nothing
     Right s -> do
+      let wf = contractive s
+      when (not wf) do
+        putStrLn "error: not contractive"
       print $ pretty s
-      pure (Just s)
+      pure $ s <$ guard wf
 
 printHeader :: String -> IO ()
 printHeader s = putStrLn $ "\ESC[1m[== " ++ s ++ " ==]\ESC[0m"

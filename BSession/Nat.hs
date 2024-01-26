@@ -6,7 +6,6 @@
 module BSession.Nat where
 
 import Data.Kind
-import Numeric.Natural
 import Prettyprinter
 
 type Nat :: Type
@@ -23,21 +22,21 @@ data Fin n where
 
 deriving stock instance Eq (Fin n)
 
-class ToNat a where
-  toNat :: a -> Natural
+class ToNum a where
+  toNum :: (Num b) => a -> b
 
-instance ToNat Nat where
-  toNat = \case
+instance ToNum Nat where
+  toNum = \case
     Z -> 0
-    S n -> 1 + toNat n
+    S n -> 1 + toNum n
 
-instance ToNat (Fin n) where
-  toNat = \case
+instance ToNum (Fin n) where
+  toNum = \case
     FZ -> 0
-    FS n -> 1 + toNat n
+    FS n -> 1 + toNum n
 
 instance Pretty Nat where
-  pretty = pretty . toNat
+  pretty = pretty @Int . toNum
 
 instance Pretty (Fin n) where
-  pretty = pretty . toNat
+  pretty = pretty @Int . toNum
