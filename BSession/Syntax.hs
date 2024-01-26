@@ -1,12 +1,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module BSession.Syntax where
 
 import BSession.Nat
-import Data.IntSet qualified as IS
 import Data.Kind
 import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as T
@@ -68,3 +68,37 @@ contractive = go 0
       SCom _ _ s -> contractive s
       SAlt _ ss -> all contractive ss
       SMu _ s -> go (preceedingBinders + 1) s
+
+type Ren m n = Var m -> Var n
+
+extRen :: Ren m n -> Ren (S m) (S n)
+extRen _ (Var v FZ) = Var v FZ
+extRen r (Var v (FS m)) = varSuc (r (Var v m))
+
+varSuc :: Ren n (S n)
+varSuc (Var v n) = Var v (FS n)
+
+ren :: forall m n. Ren m n -> Session m -> Session n
+ren r = sub (SVar . r)
+
+type Sub m n = Var m -> Session n
+
+extSub :: Sub m n -> Sub (S m) (S n)
+extSub _ (Var v FZ) = SVar (Var v FZ)
+extSub s (Var v (FS m)) = ren varSuc $ s $ Var v m
+
+sub0 :: Session n -> Sub (S n) n
+sub0 s (Var _ FZ) = s
+sub0 _ (Var v (FS n)) = SVar $ Var v n
+
+sub :: Sub m n -> Session m -> Session n
+sub sb = \case
+  SEnd -> SEnd
+  SRet -> SRet
+  SVar v -> sb v
+  SCom x t s -> SCom x t (sub sb s)
+  SAlt x ss -> SAlt x (sub sb <$> ss)
+  SMu v s -> SMu v (sub (extSub sb) s)
+
+unroll :: VarLabel -> Session (S n) -> Session n
+unroll lbl s = sub (sub0 (SMu lbl s)) s
