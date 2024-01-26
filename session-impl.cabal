@@ -17,11 +17,18 @@ common warnings
 
 executable session-impl
     import:           warnings
-    main-is:          Main.hs
-    -- other-modules:
+    main-is:          main.hs
+    other-modules:
+      BSession.Nat,
+      BSession.Parse,
+      BSession.Syntax,
     -- other-extensions:
     build-depends:
       base ^>=4.19.0.0,
+      containers ^>=0.6,
       megaparsec ^>=9.6.1,
-    hs-source-dirs:   src
+      prettyprinter ^>=1.7,
+      text ^>=2.1,
+      unordered-containers ^>=0.2.20,
+    hs-source-dirs:   .
     default-language: GHC2021
