@@ -5,12 +5,51 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 
-module BSession.Syntax where
+module BSession.Syntax
+  ( -- * Session Types
+    LSession,
+    CSession,
+    Session (..),
+    Dir (..),
+    Ty (..),
+
+    -- ** Variables
+    Var (..),
+    VarLabel (..),
+
+    -- ** Branching
+    LBranch (..),
+    CBranch,
+    branchWidth',
+    packBranches,
+    unpackBranches,
+    padLBranches,
+
+    -- * Renaming
+    Ren,
+    ren,
+    varSuc,
+    extRen,
+
+    -- * Substitution
+    Sub,
+    sub,
+    sub0,
+    extSub,
+
+    -- * Handling recursive sessions
+    contractive,
+    unroll,
+  )
+where
 
 import BSession.Nat
 import Data.Hashable
 import Data.Kind
+import Data.List (genericLength, genericReplicate)
+import Data.List.NonEmpty (NonEmpty (..), nonEmpty)
 import Data.List.NonEmpty qualified as NE
+import Data.String (IsString)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
@@ -18,7 +57,7 @@ import Prettyprinter
 
 -- |  A `VarLabel` is the user facing name of a variable.
 newtype VarLabel = VarLabel T.Text
-  deriving newtype (Pretty)
+  deriving newtype (IsString, Pretty)
 
 -- | Because `VarLabel`s are purely visual they have no effect on equality. All
 -- `VarLabel`s compare equal!
@@ -42,15 +81,44 @@ data Dir = In | Out
 instance Hashable Dir
 
 newtype Ty = Ty T.Text
-  deriving newtype (Eq, Pretty, Hashable)
+  deriving newtype (Eq, IsString, Pretty, Hashable)
 
-data LBranch a = LBranch !Natural a
-  deriving stock (Eq, Functor, Foldable, Generic)
+data LBranch a = LBranch
+  { branchIndex :: !Natural,
+    branchWidth :: !Natural,
+    branchTarget :: a
+  }
+  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
 
 instance (Hashable a) => Hashable (LBranch a)
 
 newtype CBranch a = CBranch (NE.NonEmpty a)
   deriving newtype (Eq, Functor, Foldable, Hashable)
+
+branchWidth' :: CBranch a -> Natural
+branchWidth' (CBranch as) = genericLength $ NE.toList as
+
+packBranches :: NE.NonEmpty a -> CBranch a
+packBranches = CBranch
+
+unpackBranches :: CBranch a -> NE.NonEmpty (LBranch a)
+unpackBranches b@(CBranch as) =
+  let !w = branchWidth' b
+   in NE.zipWith (\i a -> LBranch i w a) (NE.fromList [0 ..]) as
+
+padLBranches :: forall a. a -> NE.NonEmpty (LBranch a) -> CBranch a
+padLBranches pa = CBranch . go Nothing . NE.sortWith branchIndex
+  where
+    go :: Maybe Natural -> NonEmpty (LBranch a) -> NonEmpty a
+    go m (LBranch i w a :| as) =
+      let as' = case nonEmpty as of
+            Nothing -> padding (Just i) (w + 1)
+            Just as1 -> NE.toList $ go (Just i) as1
+       in padding m i `NE.prependList` (a :| as')
+
+    padding :: Maybe Natural -> Natural -> [a]
+    padding Nothing i = genericReplicate (toInteger i) pa
+    padding (Just i) i' = genericReplicate (toInteger i' - toInteger i - 1) pa
 
 type LSession = Session LBranch
 
@@ -86,7 +154,7 @@ instance (forall a. (Pretty a) => Pretty (f a)) => Pretty (Session f n) where
     SMu v s -> "rec " <> pretty v <> dot <+> pretty s
 
 instance (Pretty a) => Pretty (LBranch a) where
-  pretty (LBranch n a) = pretty n <> dot <+> pretty a
+  pretty (LBranch n w a) = pretty n <> slash <> pretty w <> dot <+> pretty a
 
 instance (Pretty a) => Pretty (CBranch a) where
   pretty (CBranch as) = encloseSep "{ " " }" " ; " (pretty <$> NE.toList as)

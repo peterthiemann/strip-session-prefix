@@ -19,6 +19,7 @@ executable session-impl
     import:           warnings
     main-is:          main.hs
     other-modules:
+      BSession.Linear,
       BSession.Nat,
       BSession.Parse,
       BSession.Prefix,

@@ -43,7 +43,7 @@ pSession vars = label "session type" do
     pAlt = label "choice" do
       SAlt
         <$> ((In <$ pSym "&") <|> (Out <$ pSym "+"))
-        <*> between (pSym "{") (pSym "}") (CBranch . NE.fromList <$> sepBy1 (pSession vars) (pSym ";"))
+        <*> between (pSym "{") (pSym "}") (packBranches . NE.fromList <$> sepBy1 (pSession vars) (pSym ";"))
     pStop = pIdentMapM \case
       KWRet -> pure $ Right SRet
       KWEnd -> pure $ Right SEnd
