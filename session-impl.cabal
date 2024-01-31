@@ -1,5 +1,5 @@
 cabal-version:      3.4
-name:               session-impl
+name:               session-prefixes
 version:            0.1.0.0
 -- synopsis:
 -- description:
@@ -12,26 +12,59 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
-common warnings
-    ghc-options: -Wall
 
-executable session-impl
-    import:           warnings
-    main-is:          main.hs
-    other-modules:
-      BSession.Linear,
-      BSession.Nat,
-      BSession.Parse,
-      BSession.Prefix,
-      BSession.Syntax,
-    -- other-extensions:
-    build-depends:
-      base ^>=4.19.0.0,
-      containers ^>=0.6,
-      hashable ^>= 1.4.3,
-      megaparsec ^>=9.6.1,
-      prettyprinter ^>=1.7,
-      text ^>=2.1,
-      unordered-containers ^>=0.2.20,
-    hs-source-dirs:   .
-    default-language: GHC2021
+common defaults
+  build-depends: base ^>=4.19.0.0
+  default-language: GHC2021
+  default-extensions:
+    BlockArguments
+    DerivingVia
+    LambdaCase
+    QuantifiedConstraints
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wpartial-fields
+    -Wredundant-constraints
+    -Wno-unticked-promoted-constructors
+
+
+common deps
+  build-depends:
+    containers ^>=0.6,
+    hashable ^>= 1.4.3,
+    megaparsec ^>=9.6.1,
+    prettyprinter ^>=1.7,
+    text ^>=2.1,
+    unordered-containers ^>=0.2.20,
+
+
+library
+  import: defaults, deps
+  hs-source-dirs: .
+
+  exposed-modules:
+    BSession.Linear
+    BSession.Nat
+    BSession.Parse
+    BSession.Prefix
+    BSession.Syntax
+
+
+test-suite spec
+  import: defaults, deps
+  main-is: test.hs
+  hs-source-dirs: .
+  type: exitcode-stdio-1.0
+
+  other-modules:
+    Test.Prefix
+
+  build-depends:
+    session-prefixes,
+    hspec ^>= 2.11.7,
+
+  build-tool-depends:
+    hspec-discover:hspec-discover,
