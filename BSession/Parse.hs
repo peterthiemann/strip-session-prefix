@@ -27,10 +27,10 @@ pSym = PL.symbol (hidden P.space) . T.pack
 pLex :: Parser a -> Parser a
 pLex = PL.lexeme (hidden P.space)
 
-session :: Parser (Session Z)
+session :: Parser (CSession Z)
 session = hidden P.space *> pSession HM.empty <* eof
 
-pSession :: HM.HashMap T.Text (Fin n) -> Parser (Session n)
+pSession :: HM.HashMap T.Text (Fin n) -> Parser (CSession n)
 pSession vars = label "session type" do
   pCom <|> pAlt <|> pStop <|> pMu
   where
@@ -43,7 +43,7 @@ pSession vars = label "session type" do
     pAlt = label "choice" do
       SAlt
         <$> ((In <$ pSym "&") <|> (Out <$ pSym "+"))
-        <*> between (pSym "{") (pSym "}") (NE.fromList <$> sepBy1 (pSession vars) (pSym ";"))
+        <*> between (pSym "{") (pSym "}") (CBranch . NE.fromList <$> sepBy1 (pSession vars) (pSym ";"))
     pStop = pIdentMapM \case
       KWRet -> pure $ Right SRet
       KWEnd -> pure $ Right SEnd

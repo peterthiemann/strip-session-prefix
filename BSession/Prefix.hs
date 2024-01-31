@@ -1,7 +1,9 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module BSession.Prefix (stripPrefix) where
 
+import BSession.Nat
 import BSession.Syntax
 import Data.Foldable
 import Data.HashSet qualified as HS
@@ -35,17 +37,17 @@ second thought this sounds similar to the session type -> regular language ->
 automata construction idea.
 -}
 
-stripPrefix :: Session0 -> Session0 -> IO Session0
+stripPrefix :: CSession Z -> CSession Z -> IO (CSession Z)
 stripPrefix full pfx =
   go HS.empty full pfx
     >>= maybe (notAPrefix full pfx "no remainder") pure
 
-go :: HS.HashSet (Session0, Session0) -> Session0 -> Session0 -> IO (Maybe Session0)
+go :: HS.HashSet (CSession Z, CSession Z) -> CSession Z -> CSession Z -> IO (Maybe (CSession Z))
 go !seen full pfx
   | (full, pfx) `HS.member` seen = notAPrefix full pfx "recursive"
   | otherwise = go' ((full, pfx) `HS.insert` seen) full pfx
 
-go' :: HS.HashSet (Session0, Session0) -> Session0 -> Session0 -> IO (Maybe Session0)
+go' :: HS.HashSet (CSession Z, CSession Z) -> CSession Z -> CSession Z -> IO (Maybe (CSession Z))
 go' _ s SRet = pure (Just s) -- TODO: think about behaviour if `s == SRet`
 go' _ s1 s2 | s1 == s2 = pure Nothing
 go' seen (SCom x1 t1 s1) (SCom x2 t2 s2) | x1 == x2 && t1 == t2 = go seen s1 s2
@@ -59,7 +61,7 @@ go' seen (SMu v s) s' = go seen (unroll v s) s'
 go' seen s (SMu v s') = go seen s (unroll v s')
 go' _ full pfx = notAPrefix full pfx "incompatible structure"
 
-notAPrefix :: Session0 -> Session0 -> Doc ann -> IO a
+notAPrefix :: CSession Z -> CSession Z -> Doc ann -> IO a
 notAPrefix full pfx reason =
   Exit.die . show . vcat $
     [ pretty pfx,

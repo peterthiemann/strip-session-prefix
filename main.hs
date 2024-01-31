@@ -1,6 +1,8 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 
+import BSession.Nat
 import BSession.Parse qualified as Parse
 import BSession.Prefix
 import BSession.Syntax
@@ -34,7 +36,7 @@ main = do
   printHeader "continuation"
   print . pretty =<< stripPrefix full pfx
 
-parse :: String -> String -> IO (Maybe Session0)
+parse :: String -> String -> IO (Maybe (CSession Z))
 parse name src = do
   printHeader name
   case P.runParser Parse.session "" (T.pack src) of
