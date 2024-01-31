@@ -4,10 +4,17 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module BSession.Parse (Parser, session) where
+module BSession.Parse
+  ( Parser,
+    session,
+    ParseFailure (..),
+    readSession,
+  )
+where
 
 import BSession.Nat
 import BSession.Syntax
+import Control.Exception (Exception (..), throw)
 import Control.Monad
 import Data.Char qualified as C
 import Data.HashMap.Strict qualified as HM
@@ -20,6 +27,17 @@ import Text.Megaparsec.Char qualified as P
 import Text.Megaparsec.Char.Lexer qualified as PL
 
 type Parser = Parsec Void T.Text
+
+newtype ParseFailure = ParseFailure (ParseErrorBundle T.Text Void)
+
+instance Show ParseFailure where
+  show = displayException
+
+instance Exception ParseFailure where
+  displayException (ParseFailure e) = errorBundlePretty e
+
+readSession :: String -> CSession Z
+readSession = either (throw . ParseFailure) id . runParser session "" . T.pack
 
 pSym :: String -> Parser T.Text
 pSym = PL.symbol (hidden P.space) . T.pack
