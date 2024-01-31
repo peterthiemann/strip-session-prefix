@@ -5,8 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module BSession.Parse
-  ( Parser,
-    session,
+  ( parseSession,
     ParseFailure (..),
     readSession,
   )
@@ -37,7 +36,7 @@ instance Exception ParseFailure where
   displayException (ParseFailure e) = errorBundlePretty e
 
 readSession :: String -> CSession Z
-readSession = either (throw . ParseFailure) id . runParser session "" . T.pack
+readSession = either (throw . ParseFailure) id . parseSession "" . T.pack
 
 pSym :: String -> Parser T.Text
 pSym = PL.symbol (hidden P.space) . T.pack
@@ -45,8 +44,8 @@ pSym = PL.symbol (hidden P.space) . T.pack
 pLex :: Parser a -> Parser a
 pLex = PL.lexeme (hidden P.space)
 
-session :: Parser (CSession Z)
-session = hidden P.space *> pSession HM.empty <* eof
+parseSession :: String -> T.Text -> Either (ParseErrorBundle T.Text Void) (CSession Z)
+parseSession = runParser (hidden P.space *> pSession HM.empty <* eof)
 
 pSession :: HM.HashMap T.Text (Fin n) -> Parser (CSession n)
 pSession vars = label "session type" do
