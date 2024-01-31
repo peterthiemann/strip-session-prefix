@@ -1,13 +1,16 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 
-module BSession.Prefix (stripPrefix) where
+module BSession.Prefix (stripPrefix, stripPrefix', stripLinPrefix) where
 
+import BSession.Linear
 import BSession.Nat
 import BSession.Syntax
 import Data.Foldable
 import Data.HashSet qualified as HS
+import Data.List (genericIndex)
 import Data.Maybe
 import Prettyprinter
 import System.Exit qualified as Exit
@@ -76,3 +79,21 @@ notAPrefix full pfx reason =
       "",
       "Reason:" <+> reason
     ]
+
+stripPrefix' :: CSession Z -> CSession Z -> IO (CSession Z)
+stripPrefix' full pfx =
+  let fullPaths = linearSessions full
+   in undefined
+
+stripLinPrefix :: LSession n -> CSession n -> IO (LSession n)
+stripLinPrefix = go
+  where
+    go SRet SRet = fail "TODO: handle ret % ret case"
+    go s SRet = pure s
+    go a@SEnd b@SEnd = notAPrefix a b "no continuation left"
+    go a@(SVar v) b@(SVar v') | v == v' = notAPrefix a b "no continuation left"
+    go (SCom x t full) (SCom x' t' pfx) | x == x' && t == t' = go full pfx
+    go (SAlt x b) (SAlt x' bs) | x == x' && branchWidth b == branchWidth' bs = go (branchTarget b) (toList bs `genericIndex` branchIndex b)
+    go (SMu v full) pfx = undefined
+    go full (SMu v pfx) = undefined
+    go full pfx = notAPrefix full pfx "incompatible structure"
