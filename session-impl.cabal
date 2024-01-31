@@ -43,7 +43,7 @@ common deps
 
 library
   import: defaults, deps
-  hs-source-dirs: .
+  hs-source-dirs: src
 
   exposed-modules:
     BSession.Linear
@@ -55,12 +55,12 @@ library
 
 test-suite spec
   import: defaults, deps
-  main-is: test.hs
-  hs-source-dirs: .
+  main-is: spec.hs
+  hs-source-dirs: test
   type: exitcode-stdio-1.0
 
   other-modules:
-    Test.Prefix
+    Prefix
 
   build-depends:
     session-prefixes,

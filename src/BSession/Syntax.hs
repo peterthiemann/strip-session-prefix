@@ -153,6 +153,9 @@ instance (forall a. (Pretty a) => Pretty (f a)) => Pretty (Session f n) where
     SAlt x b -> (case x of In -> "&"; Out -> "+") <> pretty b -- encloseSep "{ " " }" " ; " (pretty <$> NE.toList ss)
     SMu v s -> "rec " <> pretty v <> dot <+> pretty s
 
+instance (forall a. (Pretty a) => Pretty (f a)) => Show (Session f n) where
+  show = show . pretty
+
 instance (Pretty a) => Pretty (LBranch a) where
   pretty (LBranch n w a) = pretty n <> slash <> pretty w <> dot <+> pretty a
 

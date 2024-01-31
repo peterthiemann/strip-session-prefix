@@ -1,6 +1,11 @@
-module Test.Prefix (spec) where
+module Prefix (spec) where
 
-import Test.Hspec (Spec)
+import BSession.Parse
+import BSession.Prefix
+import Test.Hspec
 
 spec :: Spec
-spec = pure ()
+spec = do
+  it "recognizes basic linear prefixes" do
+    (readSession "!A.?B.end" `stripPrefix` readSession "!A.ret")
+      `shouldReturn` readSession "?B.end"
