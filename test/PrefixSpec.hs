@@ -2,6 +2,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module PrefixSpec (spec) where
 
@@ -11,6 +12,7 @@ import BSession.Prefix
 import BSession.Syntax
 import Control.Applicative
 import Control.Category ((>>>))
+import Data.Hashable
 import Data.Text qualified as T
 import Prettyprinter
 import Test.Hspec
@@ -58,6 +60,13 @@ spec = do
 
 infix 2 `shouldGive`
 
+newtype Semantic a = Semantic (Session Z a)
+
+deriving newtype instance (forall n. Pretty (a n)) => Show (Semantic a)
+
+instance (PhantomIdx a, forall n. Hashable (a n)) => Eq (Semantic a) where
+  Semantic a == Semantic b = isEqual a b
+
 shouldGive :: (HasCallStack) => (T.Text, T.Text) -> T.Text -> Expectation
 shouldGive (ssrc, psrc) expected = do
   s <- shouldParse "«s»" ssrc
@@ -65,7 +74,7 @@ shouldGive (ssrc, psrc) expected = do
   r <- shouldParse "«r»" expected
   case s `stripPrefix` p of
     Left e -> expectationFailure $ show e
-    Right r' -> r' `shouldBe` r
+    Right r' -> Semantic r' `shouldBe` Semantic r
 
 shouldFail :: (HasCallStack) => (T.Text, T.Text) -> Error -> Expectation
 shouldFail (ssrc, psrc) e = do
