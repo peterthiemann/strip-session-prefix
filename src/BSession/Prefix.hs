@@ -1,19 +1,18 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 
-module BSession.Prefix (stripPrefix, stripPrefix', stripLinPrefix) where
+module BSession.Prefix where
 
-import BSession.Linear
 import BSession.Nat
 import BSession.Syntax
 import Data.Foldable
 import Data.HashSet qualified as HS
-import Data.List (genericIndex)
 import Data.Maybe
-import Prettyprinter
-import System.Exit qualified as Exit
+import Data.Semialign
+import Data.These
 
 {-
 The current algorithm is wrong. Take for example the type
@@ -41,18 +40,103 @@ second thought this sounds similar to the session type -> regular language ->
 automata construction idea.
 -}
 
-stripPrefix :: CSession Z -> CSession Z -> IO (CSession Z)
+data Error
+  = ErrorNotAPrefix
+  | ErrorNoCont
+  | ErrorContConflict (Session Z END) (Session Z END)
+  deriving stock (Eq, Show)
+
+stripPrefix :: Session Z END -> Session Z RET -> Either Error (Session Z END)
+stripPrefix s0 p0 = go HS.empty s0 p0 >>= maybe (Left ErrorNoCont) Right
+  where
+    go :: HS.HashSet (Session Z END, Session Z RET) -> Session Z END -> Session Z RET -> Either Error (Maybe (Session Z END))
+    go !seen s p
+      | (s, p) `HS.member` seen = Right Nothing
+      | otherwise = go' (HS.insert (s, p) seen) s p
+
+    go' :: HS.HashSet (Session Z END, Session Z RET) -> Session Z END -> Session Z RET -> Either Error (Maybe (Session Z END))
+    go' _ s (SEnd _) = pure $ Just $ s
+    go' c (SMu v s) s' = go c (unroll v s) s'
+    go' c s (SMu v s') = go c s (unroll v s')
+    go' c (SCom xs ts s) (SCom xp tp p) | xs == xp && ts == tp = go c s p
+    go' c (SAlt xs bbs) (SAlt xp bbp)
+      | xs == xp,
+        Just bb <- zipSameLength bbs bbp = do
+          rests <- traverse (uncurry (go c)) bb
+          case catMaybes (toList rests) of
+            [] -> pure Nothing
+            r : rs
+              | r' : _ <- filter (r /=) rs -> Left (ErrorContConflict r r')
+              | otherwise -> pure $ Just r
+    go' _ _ _ = Left ErrorNotAPrefix
+
+zipSameLength :: (Semialign f, Traversable f) => f a -> f b -> Maybe (f (a, b))
+zipSameLength fa fb = sequenceA $ alignWith (\case These a b -> Just (a, b); _ -> Nothing) fa fb
+
+{-
+type VarMap :: Nat -> (Nat -> Type) -> Type
+data VarMap n f where
+  VMNil :: VarMap Z f
+  VMCons :: f (S n) -> VarMap n f -> VarMap (S n) f
+
+type VarCache :: (Nat -> Type) -> Type -> Nat -> Type
+data VarCache a t n = VarCache
+  { varExpansion :: Session n a,
+    varSeen :: [t]
+  }
+
+closeVarMap :: (PhantomIdx a) => (forall m. f m -> Session m a) -> VarMap n f -> Sub a n Z
+closeVarMap _ VMNil = idSub
+closeVarMap g (VMCons a m) = \case
+  Var v FZ -> closeSession g m (sub (sub0 (SMu v (g a))) (g a))
+  Var v (FS n) -> closeVarMap g m (Var v n)
+
+closeSession :: (PhantomIdx a) => (forall m. f m -> Session m a) -> VarMap n f -> Session n a -> Session Z a
+closeSession g = sub . closeVarMap g
+
+{-
+lookupVar :: (PhantomIdx a) => Var n -> VarMap n a -> Session n a
+lookupVar (Var _ FZ) (VMCons s _) = s
+lookupVar (Var v (FS n)) (VMCons _ m) = ren varSuc $ lookupVar (Var v n) m
+-}
+
+stripPrefix :: Session Z END -> Session Z RET -> Result Z
+stripPrefix s0 p0 = go VMNil VMNil s0 p0 >>= maybe noRemainder Right
+  where
+    go :: VarMap m (VarCache END (Session n RET)) -> VarMap n (VarCache RET ()) -> Session m END -> Session n RET -> MResult Z
+    go mvars _ s (SEnd _) = Right $ Just $ closeSession varExpansion mvars s
+    go svars pvars s (SMu _ p) = go svars (VMCons (VarCache p []) _) s p
+    go svars pvars (SMu _ s) p = go (VMCons (VarCache s []) svars) pvars s p
+    go svars pvars (SCom xs ts s) (SCom xp tp p)
+      | xs == xp && ts == tp = first (SCom xs ts) $ go svars pvars s p
+    go mvars nvars s s' = Left . SEnd $ do
+      Error
+        { errorFull = closeSession varExpansion mvars s,
+          errorPrefix = closeSession varExpansion nvars s',
+          errorReason = ErrorIncompatible
+        }
+
+    noRemainder = Left . SEnd $ do
+      Error
+        { errorFull = s0,
+          errorPrefix = p0,
+          errorReason = ErrorNoRemainder
+        }
+-}
+
+{-
+stripPrefix :: S0 -> S0 -> IO S0
 stripPrefix full0 pfx0 =
   go HS.empty full0 pfx0
     >>= maybe (notAPrefix full0 pfx0 "no remainder") pure
   where
-    go :: HS.HashSet (CSession Z, CSession Z) -> CSession Z -> CSession Z -> IO (Maybe (CSession Z))
+    go :: HS.HashSet (S0, S0) -> S0 -> S0 -> IO (Maybe S0)
     go !seen full pfx
       | (full, pfx) `HS.member` seen = notAPrefix full pfx "recursive"
       | otherwise = go' ((full, pfx) `HS.insert` seen) full pfx
 
-    go' :: HS.HashSet (CSession Z, CSession Z) -> CSession Z -> CSession Z -> IO (Maybe (CSession Z))
-    go' _ s SRet = pure (Just s) -- TODO: think about behaviour if `s == SRet`
+    go' :: HS.HashSet (S0, S0) -> S0 -> S0 -> IO (Maybe S0)
+    go' _ s (SEnd _) = pure (Just s) -- TODO: think about behaviour if `s == SRet`
     go' _ s1 s2 | s1 == s2 = pure Nothing
     go' seen (SCom x1 t1 s1) (SCom x2 t2 s2) | x1 == x2 && t1 == t2 = go seen s1 s2
     go' seen full@(SAlt x1 ss1) pfx@(SAlt x2 ss2) | x1 == x2 && length ss1 == length ss2 = do
@@ -66,11 +150,11 @@ stripPrefix full0 pfx0 =
     go' _ full pfx = notAPrefix full pfx "incompatible structure"
 
 notAPrefix ::
-  (forall x. (Pretty x) => Pretty (f x), forall x. (Pretty x) => Pretty (g x)) =>
-  Session f n ->
-  Session g n ->
+  (forall m. Pretty (a m), forall m. Pretty (b m)) =>
+  Session n a ->
+  Session n b ->
   Doc ann ->
-  IO a
+  IO x
 notAPrefix full pfx reason =
   Exit.die . show . vcat $
     [ pretty pfx,
@@ -79,7 +163,9 @@ notAPrefix full pfx reason =
       "",
       "Reason:" <+> reason
     ]
+-}
 
+{-
 stripPrefix' :: CSession Z -> CSession Z -> IO (CSession Z)
 stripPrefix' full pfx =
   let fullPaths = linearSessions full
@@ -97,3 +183,4 @@ stripLinPrefix = go
     go (SMu v full) pfx = undefined
     go full (SMu v pfx) = undefined
     go full pfx = notAPrefix full pfx "incompatible structure"
+    -}

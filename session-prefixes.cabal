@@ -37,7 +37,9 @@ common deps
     hashable ^>= 1.4.3,
     megaparsec ^>=9.6.1,
     prettyprinter ^>=1.7,
+    semialign ^>=1.3,
     text ^>=2.1,
+    these ^>=1.2,
     unordered-containers ^>=0.2.20,
 
 
@@ -46,7 +48,6 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    BSession.Linear
     BSession.Nat
     BSession.Parse
     BSession.Prefix

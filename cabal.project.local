@@ -11,3 +11,7 @@ test-show-details: direct
 
 -- Documentation output
 haddock-hyperlink-source: True
+
+-- Save us from some unnecessary work
+package semialign
+  flags: -semigroupoids

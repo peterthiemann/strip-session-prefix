@@ -6,17 +6,16 @@
 
 module BSession.Parse
   ( parseSession,
-    ParseFailure (..),
-    readSession,
+    ParseEnd,
   )
 where
 
 import BSession.Nat
 import BSession.Syntax
-import Control.Exception (Exception (..), throw)
 import Control.Monad
 import Data.Char qualified as C
 import Data.HashMap.Strict qualified as HM
+import Data.Kind
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -27,27 +26,26 @@ import Text.Megaparsec.Char.Lexer qualified as PL
 
 type Parser = Parsec Void T.Text
 
-newtype ParseFailure = ParseFailure (ParseErrorBundle T.Text Void)
-
-instance Show ParseFailure where
-  show = displayException
-
-instance Exception ParseFailure where
-  displayException (ParseFailure e) = errorBundlePretty e
-
-readSession :: String -> CSession Z
-readSession = either (throw . ParseFailure) id . parseSession "" . T.pack
-
 pSym :: String -> Parser T.Text
 pSym = PL.symbol (hidden P.space) . T.pack
 
 pLex :: Parser a -> Parser a
 pLex = PL.lexeme (hidden P.space)
 
-parseSession :: String -> T.Text -> Either (ParseErrorBundle T.Text Void) (CSession Z)
+type ParseEnd :: (Nat -> Type) -> Constraint
+class ParseEnd a where
+  endParser :: Parser (a n)
+
+instance ParseEnd END where
+  endParser = END <$ pIdent KWEnd
+
+instance ParseEnd RET where
+  endParser = RET <$ pSym ".."
+
+parseSession :: (ParseEnd a) => String -> T.Text -> Either (ParseErrorBundle T.Text Void) (Session Z a)
 parseSession = runParser (hidden P.space *> pSession HM.empty <* eof)
 
-pSession :: HM.HashMap T.Text (Fin n) -> Parser (CSession n)
+pSession :: (ParseEnd a) => HM.HashMap T.Text (Fin n) -> Parser (Session n a)
 pSession vars = label "session type" do
   pCom <|> pAlt <|> pStop <|> pMu
   where
@@ -60,13 +58,12 @@ pSession vars = label "session type" do
     pAlt = label "choice" do
       SAlt
         <$> ((In <$ pSym "&") <|> (Out <$ pSym "+"))
-        <*> between (pSym "{") (pSym "}") (packBranches . NE.fromList <$> sepBy1 (pSession vars) (pSym ";"))
-    pStop = pIdentMapM \case
-      KWRet -> pure $ Right SRet
-      KWEnd -> pure $ Right SEnd
-      Ident s | Just idx <- HM.lookup s vars -> pure $ Right $ SVar $ Var (VarLabel s) idx
-      Ident s | otherwise -> fail $ "unbound variable ‘" ++ T.unpack s ++ "’"
-      _ -> pure $ Left [Ident ""]
+        <*> between (pSym "{") (pSym "}") (NE.fromList <$> sepBy1 (pSession vars) (pSym ";"))
+    pStop =
+      (SEnd <$> endParser) <|> pIdentMapM \case
+        Ident s | Just idx <- HM.lookup s vars -> pure $ Right $ SVar $ Var (VarLabel s) idx
+        Ident s | otherwise -> fail $ "unbound variable ‘" ++ T.unpack s ++ "’"
+        _ -> pure $ Left [Ident ""]
     pMu = do
       _ <- pIdent KWRec
       var <- pIdentMap \case Ident s -> Right s; _ -> Left [Ident ""]
@@ -74,7 +71,7 @@ pSession vars = label "session type" do
       let vars' = HM.insert var FZ $ HM.map FS vars
       SMu (VarLabel var) <$> pSession vars'
 
-data LexIdent = KWRec | KWRet | KWEnd | Ident !T.Text
+data LexIdent = KWRec | KWEnd | Ident !T.Text
   deriving stock (Eq)
 
 pIdentAny :: Parser LexIdent
@@ -85,7 +82,6 @@ pIdentAny = label "identifier" $ pLex $ try do
     unexpected $ Tokens $ NE.fromList $ T.unpack s
   pure $ case s of
     "rec" -> KWRec
-    "ret" -> KWRet
     "end" -> KWEnd
     _ -> Ident s
 
@@ -95,7 +91,6 @@ pIdentMapM f = try do
   pIdentAny >>= \lexed -> do
     let toLbl = \case
           KWRec -> Tokens $ NE.fromList "rec"
-          KWRet -> Tokens $ NE.fromList "ret"
           KWEnd -> Tokens $ NE.fromList "end"
           Ident _ -> Label $ NE.fromList "identifier"
     f lexed >>= \case

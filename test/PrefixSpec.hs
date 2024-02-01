@@ -18,43 +18,64 @@ import Text.Megaparsec qualified as M
 
 spec :: Spec
 spec = do
-  it "recognizes basic linear prefixes" $
-    ( "!A.?B.end",
-      "!A.ret"
-    )
+  it "recognizes basic linear prefixes" do
+    ("!A.?B.end", "!A...")
       `shouldGive` "?B.end"
+
+  it "refutes direction mismatches" do
+    ("!A.end", "?A...")
+      `shouldFail` ErrorNotAPrefix
+    ("+{ end }", "&{ .. }")
+      `shouldFail` ErrorNotAPrefix
+
+  it "refutes type mismatches" do
+    ("!A.end", "!B...")
+      `shouldFail` ErrorNotAPrefix
 
   it "can take a finite prefix of infinity" $
     ( "rec X. !Int.X",
-      "!Int.!Int.ret"
+      "!Int.!Int..."
     )
       `shouldGive` "rec X. !Int.X"
 
   it "can unify multiple branches" $
     ( "!A. +{ !B1.!C.end ; !B2.!C.end }",
-      "!A. +{ !B1.ret ; !B2.ret }"
+      "!A. +{ !B1... ; !B2... }"
     )
       `shouldGive` "!C.end"
 
-{-
-  it "can take a closed loop of infinity" $
-    PrefixSpec
-      { full = "rec X. !Int. +{ X ; ?Int.end }",
-        prefix = "rec X. !Int. +{ X ; ret }",
-        cont = ""
-      }
--}
+  it "normalizes branches during unification" $
+    ( "+{ !A. rec X. !C. end ; !B. !C. end }",
+      "+{ !A... ; !B... }"
+    )
+      `shouldGive` "!C.end"
+
+  it "can take a closed loop out of infinity" $
+    ( "rec X. !Int. +{ X ; ?Int.end }",
+      "rec X. !Int. +{ X ; .. }"
+    )
+      `shouldGive` "?Int.end"
 
 infix 2 `shouldGive`
 
 shouldGive :: (HasCallStack) => (T.Text, T.Text) -> T.Text -> Expectation
-shouldGive (full, pfx) expected = do
-  sfull <- shouldParse "«full»" full
-  spfx <- shouldParse "«prefix»" pfx
-  sexp <- shouldParse "«expected»" expected
-  (sfull `stripPrefix` spfx) `shouldReturn` sexp
+shouldGive (ssrc, psrc) expected = do
+  s <- shouldParse "«s»" ssrc
+  p <- shouldParse "«p»" psrc
+  r <- shouldParse "«r»" expected
+  case s `stripPrefix` p of
+    Left e -> expectationFailure $ show e
+    Right r' -> r' `shouldBe` r
 
-shouldParse :: (HasCallStack) => String -> T.Text -> IO (CSession Z)
+shouldFail :: (HasCallStack) => (T.Text, T.Text) -> Error -> Expectation
+shouldFail (ssrc, psrc) e = do
+  s <- shouldParse "«s»" ssrc
+  p <- shouldParse "«p»" psrc
+  case s `stripPrefix` p of
+    Left e' -> e' `shouldBe` e
+    Right r -> expectationFailure $ show r
+
+shouldParse :: (ParseEnd a, forall n. Pretty (a n), HasCallStack) => String -> T.Text -> IO (Session Z a)
 shouldParse name =
   parseSession name >>> \case
     Left e -> failure (M.errorBundlePretty e)
