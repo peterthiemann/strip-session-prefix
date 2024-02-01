@@ -53,6 +53,18 @@ library
     BSession.Prefix
     BSession.Syntax
 
+executable session-prefixes
+  import: defaults, deps
+  main-is: main.hs
+  hs-source-dirs: exe
+
+  build-depends:
+    session-prefixes,
+    brick ^>=2.3.1,
+    microlens-platform ^>=0.4.3,
+
+  ghc-options:
+    -threaded
 
 test-suite spec
   import: defaults, deps
