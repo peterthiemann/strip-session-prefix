@@ -62,6 +62,7 @@ executable session-prefixes
     session-prefixes,
     brick ^>=2.3.1,
     microlens-platform ^>=0.4.3,
+    vty ^>=6.2,
 
   ghc-options:
     -threaded
