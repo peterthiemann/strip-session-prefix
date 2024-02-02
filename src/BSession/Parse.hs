@@ -6,6 +6,7 @@
 
 module BSession.Parse
   ( parseSession,
+    ParseError,
     ParseEnd,
   )
 where
@@ -20,11 +21,13 @@ import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Void
-import Text.Megaparsec
+import Text.Megaparsec hiding (ParseError)
 import Text.Megaparsec.Char qualified as P
 import Text.Megaparsec.Char.Lexer qualified as PL
 
 type Parser = Parsec Void T.Text
+
+type ParseError = ParseErrorBundle T.Text Void
 
 pSym :: String -> Parser T.Text
 pSym = PL.symbol (hidden P.space) . T.pack
@@ -42,7 +45,7 @@ instance ParseEnd END where
 instance ParseEnd RET where
   endParser = RET <$ pSym ".."
 
-parseSession :: (ParseEnd a) => String -> T.Text -> Either (ParseErrorBundle T.Text Void) (Session Z a)
+parseSession :: (ParseEnd a) => String -> T.Text -> Either ParseError (Session Z a)
 parseSession = runParser (hidden P.space *> pSession HM.empty <* eof)
 
 pSession :: (ParseEnd a) => HM.HashMap T.Text (Fin n) -> Parser (Session n a)
