@@ -1,15 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 
 import BSession.Parse
 import BSession.Prefix
 import Brick
 import Brick.Focus
-import Brick.Widgets.Border
+import Brick.Widgets.Border qualified as Brick
 import Brick.Widgets.Edit
+import Control.Category ((>>>))
 import Control.Monad
+import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe
 import Data.Text qualified as T
+import Data.These
 import Data.Void
 import Graphics.Vty qualified as V
 import Lens.Micro.Platform
@@ -41,18 +45,59 @@ data St = St
 
 makeLenses ''St
 
+hBorderStart, hBorderEnd :: Widget n
+hBorderStart = str "╶"
+hBorderEnd = str "╴"
+
+hBorderPretty :: Widget n
+hBorderPretty = hBorderStart <+> Brick.hBorder <+> hBorderEnd
+
+borderWithLabel :: Widget n -> Widget n -> Widget n
+borderWithLabel lbl =
+  Brick.borderWithLabel (hBorderEnd <+> lbl <+> hBorderStart <+> Brick.hBorder)
+
+(<++>), (<==>) :: Widget n -> Widget n -> Widget n
+a <++> b = a <+> raw (V.backgroundFill 1 1) <+> b
+a <==> b = a <=> raw (V.backgroundFill 1 1) <=> b
+
+rootAttr :: AttrName
+rootAttr = attrName "bsession"
+
+keyAttr :: AttrName
+keyAttr = rootAttr <> attrName "key"
+
+sessionAttr :: AttrName
+sessionAttr = rootAttr <> attrName "session"
+
+errorAttr :: AttrName
+errorAttr = rootAttr <> attrName "error"
+
+keyTable :: [(T.Text, T.Text)] -> Widget n
+keyTable =
+  nonEmpty >>> \case
+    Nothing -> emptyWidget
+    Just ks ->
+      vBox
+        [ hBorderPretty,
+          foldr1 (<++>) $ renderKey <$> ks,
+          hBorderPretty
+        ]
+  where
+    renderKey (k, desc) = padLeft (Pad 1) . padRight Max $ do
+      withAttr keyAttr (txt k) <++> txt desc
+
 draw :: St -> [Widget Name]
 draw st = [ui]
   where
     ui =
       vBox
-        [ drawEditor "session" (st ^. stEditorS),
-          drawEditor "prefix" (st ^. stEditorP),
-          st ^. stResult
+        [ drawEditor "Session" (st ^. stEditorS),
+          drawEditor "Prefix" (st ^. stEditorP),
+          st ^. stResult,
+          padTop Max $ keyTable [("TAB", "change focus"), ("C-c", "quit")]
         ]
-    drawEditor name ed =
-      borderWithLabel (str "╴" <+> txt name <+> str "╶" <+> hBorder) $
-        withFocusRing (st ^. stFocus) (renderEditor (txt . T.unlines)) ed
+    drawEditor name ed = borderWithLabel (txt name) do
+      withFocusRing (st ^. stFocus) (renderEditor (txt . T.unlines)) ed
 
 handleEvent :: BrickEvent Name Event -> EventM Name St ()
 handleEvent = \case
@@ -71,26 +116,44 @@ handleEvent = \case
 reparse :: St -> St
 reparse st = st & stResult .~ widget
   where
-    parsedS = parseSession "session" $ T.intercalate "\n" $ getEditContents $ st ^. stEditorS
-    parsedP = parseSession "prefix" $ T.intercalate "\n" $ getEditContents $ st ^. stEditorP
-    widget = case (parsedS, parsedP) of
-      (Left e1, Left e2) -> parseErrorWidget e1 <=> parseErrorWidget e2
-      (_, Left e) -> parseErrorWidget e
-      (Left e, _) -> parseErrorWidget e
-      (Right s, Right p) -> case stripPrefix s p of
-        Left e -> str $ show e
-        Right r -> str $ show r
-    parseErrorWidget = padBottom (Pad 1) . str . M.errorBundlePretty
+    parsed =
+      mergeErrors
+        (parse "session" stEditorS)
+        (parse "prefix" stEditorP)
+    widget = case parsed of
+      Left e -> padRight Max . padLeftRight 1 $ do
+        mergeTheseWith parseErrorWidget parseErrorWidget (<==>) e
+      Right (s, p) -> case stripPrefix s p of
+        Left e -> prefixErrorWidget e
+        Right r -> borderWithLabel (txt "Result") . padRight Max $ do
+          withAttr sessionAttr $ str $ show r
+    parse name field =
+      parseSession name $ T.intercalate "\n" $ getEditContents $ st ^. field
+    prefixErrorWidget =
+      padLeftRight 1 . withAttr errorAttr . str . show
+    parseErrorWidget =
+      withAttr errorAttr . str . M.errorBundlePretty
+
+mergeErrors :: Either e1 a -> Either e2 b -> Either (These e1 e2) (a, b)
+mergeErrors (Left e1) (Left e2) = Left (These e1 e2)
+mergeErrors (Left e) _ = Left (This e)
+mergeErrors _ (Left e) = Left (That e)
+mergeErrors (Right a) (Right b) = Right (a, b)
 
 main :: IO ()
 main = void do
+  let attrs =
+        [ (keyAttr, fg V.cyan),
+          (sessionAttr, style V.bold),
+          (errorAttr, fg V.red)
+        ]
   let app =
         App
           { appDraw = draw,
             appHandleEvent = handleEvent,
             appStartEvent = pure (),
             appChooseCursor = focusRingCursor _stFocus,
-            appAttrMap = const $ attrMap V.defAttr []
+            appAttrMap = const $ attrMap V.defAttr attrs
           }
   let initialState =
         reparse
