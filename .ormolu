@@ -1,0 +1,3 @@
+infixl 1 &
+infixr 4 .~
+infixr 4 %~
