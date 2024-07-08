@@ -17,9 +17,11 @@ import Brick.Widgets.Border.Style qualified as Border
 import Brick.Widgets.Edit
 import Control.Category ((>>>))
 import Control.Monad
+import Data.Bifunctor
 import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe
 import Data.Text qualified as T
+import Data.These
 import Data.Void
 import Graphics.Vty qualified as V
 import Lens.Micro.Platform
@@ -28,8 +30,8 @@ import Text.Megaparsec qualified as M
 data Two a = Two a a
   deriving stock (Eq, Functor, Foldable, Traversable)
 
-twice :: a -> Two a
-twice a = Two a a
+_twice :: a -> Two a
+_twice a = Two a a
 
 _S :: Lens' (Two a) a
 _S = lens (\(Two a _) -> a) (\(Two _ b) a -> Two a b)
@@ -54,23 +56,19 @@ data Name
   = EditorS
   | EditorP
   | KeyTable
+  | ErrorsVP
   deriving stock (Eq, Ord, Show)
 
+newtype SessionError = SessionError String
+  deriving newtype (Eq)
+
 data StripResult
-  = StripGood !(Session Z END)
-  | StripOld !(Session Z END)
+  = SessionErrors (These SessionError SessionError)
   | StripError !Error
-
-ageStripResult :: StripResult -> StripResult
-ageStripResult = \case
-  StripGood s -> StripOld s
-  r -> r
-
-newtype SessionError = SessionError {getSessionError :: String}
+  | StripSuccess !(Session Z END)
 
 data St = St
   { _stEditors :: Two (Editor T.Text Name),
-    _stSessionErrors :: Two (Maybe SessionError),
     _stStripResult :: !StripResult,
     _stFocus :: !(FocusRing Name)
   }
@@ -117,58 +115,27 @@ errorHeadingAttr = errorAttr <> attrName "heading"
 focusedBorderAttr :: AttrName
 focusedBorderAttr = Brick.borderAttr <> attrName "focused"
 
-keyTable :: [(T.Text, T.Text)] -> Widget n
+keyTable :: [[(T.Text, T.Text)]] -> Widget n
 keyTable =
-  nonEmpty >>> \case
-    Nothing -> emptyWidget
-    Just ks ->
-      vBox
-        [ hBorderPretty,
-          foldr1 (<++>) $ renderKey <$> ks,
-          hBorderPretty
-        ]
+  mapMaybe nonEmpty >>> \case
+    [] -> emptyWidget
+    keyRows -> vBox $ hBorderPretty : fmap renderRow keyRows
   where
+    renderRow ks = foldr1 (<++>) $ renderKey <$> ks
     renderKey (k, desc) = padLeft (Pad 1) . padRight Max $ do
       withAttr keyAttr (txt k) <++> txt desc
 
 mainUI :: St -> Widget Name
 mainUI st = Widget Greedy Greedy do
-  render . padBottom Max . vBox . concat $
-    [ [ drawEdSection _S,
-        drawEdSection _P
-      ],
-      [drawResSection | all isNothing (st ^. stSessionErrors)],
-      [drawErrorsSection]
+  render . padBottom Max . vBox $
+    [ drawEdSection _S,
+      drawEdSection _P,
+      drawResultSection (st ^. stStripResult)
     ]
   where
-    drawResSection :: Widget Name
-    drawResSection =
-      borderWithLabel (txt "Result") do
-        drawStripResult $ st ^. stStripResult
-
-    drawStripResult :: StripResult -> Widget Name
-    drawStripResult =
-      padRight Max . \case
-        StripGood r -> withAttr sessionAttr $ str $ show r
-        StripOld r -> withAttr errorAttr $ str $ show r
-        StripError e -> withAttr errorAttr case e of
-          ErrorNotAPrefix -> withAttr errorHeadingAttr $ str "Invalid prefix."
-          ErrorNoCont -> withAttr errorHeadingAttr $ str "No continuation."
-          ErrorContConflict s1 s2 ->
-            vBox
-              [ withAttr errorHeadingAttr $ str "Conflicting continuations:",
-                padLeft (Pad 4) $ str $ show s1,
-                padLeft (Pad 4) $ str $ show s2
-              ]
-
     drawEdSection :: Selector -> Widget Name
     drawEdSection sel =
       drawEditor (Two "Session" "Prefix" ^. sel) (st ^. stEditors . sel)
-
-    drawErrorsSection :: Widget Name
-    drawErrorsSection =
-      withAttr errorAttr . padLeftRight 1 . vBox $
-        [padBottom (Pad 1) (str err) | SessionError err <- st ^.. stSessionErrors . traversed . _Just]
 
     drawEditor name ed = withFocusRing (st ^. stFocus) (editorBorder (txt name)) ed do
       withFocusRing (st ^. stFocus) (renderEditor (txt . T.unlines)) ed
@@ -179,15 +146,42 @@ mainUI st = Widget Greedy Greedy do
             . borderWithLabel label
       | otherwise = borderWithLabel label
 
+    drawResultSection :: StripResult -> Widget Name
+    drawResultSection = \case
+      StripSuccess r -> borderWithLabel (txt "Result") do
+        padRight Max . withAttr sessionAttr . str $ show r
+      SessionErrors es -> wrapErrorsSection $ mergeTheseWith renderError renderError (<=>) es
+        where
+          renderError (SessionError e) = padBottom (Pad 1) (str e)
+      StripError ErrorNotAPrefix -> wrapErrorsSection $ str "Invalid prefix."
+      StripError ErrorNoCont -> wrapErrorsSection $ str "No continuation."
+      StripError (ErrorContConflict s1 s2) ->
+        wrapErrorsSection . vBox $
+          [ withAttr errorHeadingAttr $ str "Conflicting continuations:",
+            padLeft (Pad 4) . str $ show s1,
+            padLeft (Pad 4) . str $ show s2
+          ]
+
+    wrapErrorsSection =
+      withVScrollBars OnRight
+        . viewport ErrorsVP Vertical
+        . padLeftRight 1
+        . withAttr errorAttr
+
 draw :: St -> [Widget Name]
 draw st = [mainUI st <=> cached KeyTable drawKeysTable]
   where
     drawKeysTable =
-      keyTable [("TAB", "change focus"), ("C-c", "quit")]
+      keyTable
+        [ [("TAB", "change focus"), ("C-u", "scroll error messages 🠅")],
+          [("C-c", "quit"), ("C-d", "scroll error messages 🠇")]
+        ]
 
 handleEvent :: BrickEvent Name Event -> EventM Name St ()
 handleEvent = \case
   VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl]) -> halt
+  VtyEvent (V.EvKey (V.KChar 'd') [V.MCtrl]) -> vScrollPage (viewportScroll ErrorsVP) Down
+  VtyEvent (V.EvKey (V.KChar 'u') [V.MCtrl]) -> vScrollPage (viewportScroll ErrorsVP) Up
   VtyEvent (V.EvKey (V.KChar '\t') []) -> stFocus %= focusNext
   VtyEvent (V.EvKey (V.KChar '\t') [V.MShift]) -> stFocus %= focusPrev
   VtyEvent V.EvResize {} -> invalidateCache
@@ -201,27 +195,23 @@ handleEvent = \case
       modify reparse
 
 reparse :: St -> St
-reparse st =
-  st
-    & stSessionErrors .~ Two errorS errorP
-    & updateStripped
+reparse st = st & stStripResult .~ stripResult
   where
     names = Two "session" "prefix"
 
-    (errorS, sessionS) = checkRenderParse
-    (errorP, sessionP) = checkRenderParse
+    stripResult :: StripResult
+    stripResult =
+      either id StripSuccess . join . first SessionErrors $
+        mergeEitherWith
+          (\s p -> first StripError $ stripPrefix s p)
+          checkParse
+          checkParse
 
-    stripped = stripPrefix <$> sessionS <*> sessionP
-    updateStripped = case stripped of
-      Nothing -> stStripResult %~ ageStripResult
-      Just (Left e) -> stStripResult .~ StripError e
-      Just (Right r) -> stStripResult .~ StripGood r
-
-    checkRenderParse :: forall a. (ParseEnd a, HasSelector a) => (Maybe SessionError, Maybe (Session Z a))
-    checkRenderParse = case parse of
-      Right s | contractive s -> (Nothing, Just s)
-      Right _ -> (Just . SessionError $ names ^. getSelector @a ++ ": session type is not contractive", Nothing)
-      Left pe -> (Just . SessionError $ M.errorBundlePretty pe, Nothing)
+    checkParse :: forall a. (ParseEnd a, HasSelector a) => Either SessionError (Session Z a)
+    checkParse = case parse of
+      Right s | contractive s -> Right s
+      Right _ -> Left . SessionError $ names ^. getSelector @a ++ ": session type is not contractive"
+      Left pe -> Left . SessionError $ M.errorBundlePretty pe
 
     parse :: forall a. (ParseEnd a, HasSelector a) => Either ParseError (Session Z a)
     parse =
@@ -250,9 +240,14 @@ main = void $ defaultMain app initialState
       St
         { _stEditors =
             Two
-              (editorText EditorS (Just 3) "!Int . !Int . ?Int . end")
-              (editorText EditorP (Just 3) ".."),
-          _stSessionErrors = twice Nothing,
-          _stStripResult = StripOld (SEnd END),
+              (editorText EditorS (Just 2) "!Int . !Int . ?Int . end")
+              (editorText EditorP (Just 2) ".."),
+          _stStripResult = StripSuccess (SEnd END),
           _stFocus = focusRing [EditorS, EditorP]
         }
+
+mergeEitherWith :: (a -> b -> c) -> Either e1 a -> Either e2 b -> Either (These e1 e2) c
+mergeEitherWith _ (Left e1) (Left e2) = Left (These e1 e2)
+mergeEitherWith _ (Left e1) _ = Left (This e1)
+mergeEitherWith _ _ (Left e2) = Left (That e2)
+mergeEitherWith f (Right a) (Right b) = Right (f a b)
