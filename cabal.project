@@ -1,0 +1,5 @@
+packages: .
+
+-- Save us from some unnecessary work
+package semialign
+  flags: -semigroupoids
