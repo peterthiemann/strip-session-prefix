@@ -201,11 +201,7 @@ handleEvent = \case
   VtyEvent (V.EvKey (V.KChar 'n') [V.MCtrl]) -> modify \st -> reparse (PrefixSection (st ^. stNextSectionName)) $ pushEditor st
   VtyEvent (V.EvKey (V.KChar 'x') [V.MCtrl]) -> modify dropCurrentEditor
   VtyEvent (V.EvKey (V.KChar '\t') []) -> stFocus %= focusNext
-  VtyEvent (V.EvKey (V.KChar '\t') [V.MShift]) -> stFocus %= focusPrev
-  VtyEvent (V.EvKey (V.KChar '?') []) ->
-    use stFocus >>= \fr -> suspendAndResume' do
-      print fr
-      void getChar
+  VtyEvent ev | isBackTab ev -> stFocus %= focusPrev
   VtyEvent V.EvResize {} -> invalidateCache
   ev -> do
     fr <- use stFocus
@@ -214,6 +210,10 @@ handleEvent = \case
         zoom (sectionEditor secLabel) $ handleEditorEvent ev
         modify $ reparse secLabel
       _ -> pure ()
+  where
+    isBackTab (V.EvKey (V.KChar '\t') [V.MShift]) = True
+    isBackTab (V.EvKey V.KBackTab []) = True
+    isBackTab _ = False
 
 scrollErrors :: Direction -> EventM Name St ()
 scrollErrors dir = do
