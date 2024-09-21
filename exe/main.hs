@@ -18,6 +18,8 @@ import Brick.Widgets.Edit
 import Control.Category ((>>>))
 import Control.Monad
 import Data.Bifunctor
+import Data.Foldable
+import Data.List qualified as List
 import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe
 import Data.Text qualified as T
@@ -94,8 +96,17 @@ borderWithLabel lbl =
   Brick.borderWithLabel (hBorderEnd <+> lbl <+> hBorderStart <+> Brick.hBorder)
 
 (<++>), (<==>) :: Widget n -> Widget n -> Widget n
-a <++> b = a <+> raw (V.backgroundFill 1 1) <+> b
-a <==> b = a <=> raw (V.backgroundFill 1 1) <=> b
+a <++> b = hBox' [a, b]
+a <==> b = vBox' [a, b]
+
+hBox', vBox' :: [Widget n] -> Widget n
+hBox' = hBox . List.intersperse spacer
+vBox' = vBox . List.intersperse spacer
+  where
+    _unused = (<==>)
+
+spacer :: Widget n
+spacer = raw (V.backgroundFill 1 1)
 
 rootAttr :: AttrName
 rootAttr = attrName "bsession"
@@ -121,13 +132,13 @@ keyTable =
     [] -> emptyWidget
     keyRows -> vBox $ hBorderPretty : fmap renderRow keyRows
   where
-    renderRow ks = foldr1 (<++>) $ renderKey <$> ks
+    renderRow ks = hBox' $ toList $ renderKey <$> ks
     renderKey (k, desc) = padLeft (Pad 1) . padRight Max $ do
       withAttr keyAttr (txt k) <++> txt desc
 
 mainUI :: St -> Widget Name
 mainUI st = Widget Greedy Greedy do
-  render . padBottom Max . foldr1 (<==>) $
+  render . padBottom Max . vBox' $
     padBottom (Pad 1) drawMainSection
       : fmap drawPrefixSection (st ^. stSections)
   where
@@ -178,9 +189,8 @@ draw st = [mainUI st <=> cached KeyTable drawKeysTable]
   where
     drawKeysTable =
       keyTable
-        [ [("TAB", "change focus"), ("C-u", "scroll error messages 🠅")],
-          [("C-c", "quit"), ("C-d", "scroll error messages 🠇")],
-          [("C-n", "new prefix"), ("C-x", "close current prefix")]
+        [ [("TAB", "change focus"), ("C-u", "scroll error messages 🠅"), ("C-n", "new prefix")],
+          [("C-c", "quit"), ("C-d", "scroll error messages 🠇"), ("C-x", "close current prefix")]
         ]
 
 handleEvent :: BrickEvent Name Event -> EventM Name St ()
